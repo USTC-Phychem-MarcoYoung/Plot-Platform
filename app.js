@@ -8,6 +8,8 @@ let currentMode = "xy";
 let columns = [];
 let dataRows = [];
 let customTraceNames = [];
+let lastHeatmapGridMeta = null;
+
 let customColors = [
     "#253f5f",
     "#b24a3b",
@@ -485,6 +487,59 @@ function randomColor(i) {
 function getTraceColor(index) {
     return customColors[index % customColors.length] || randomColor(index);
 }
+function getColorScale() {
+    return getValue("colorScale", "Viridis");
+}
+
+function ensureColorScaleSelector() {
+    if ($("colorScale")) return;
+
+    const colorPickerList = $("colorPickerList");
+    if (!colorPickerList) return;
+
+    const parent = colorPickerList.parentElement;
+    if (!parent) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "form-group";
+    wrapper.style.marginTop = "12px";
+
+    wrapper.innerHTML = `
+        <label for="colorScale">热力图 / 等高线 / 三维色图</label>
+        <select id="colorScale">
+            <option value="Viridis">Viridis 科研绿紫</option>
+            <option value="Plasma">Plasma 紫黄</option>
+            <option value="Inferno">Inferno 黑红黄</option>
+            <option value="Magma">Magma 黑紫黄</option>
+            <option value="Cividis">Cividis 色盲友好</option>
+            <option value="Jet">Jet 彩虹经典</option>
+            <option value="Hot">Hot 热度图</option>
+            <option value="Bluered">BlueRed 蓝红</option>
+            <option value="RdBu">RdBu 红蓝发散</option>
+            <option value="Rainbow">Rainbow 彩虹</option>
+            <option value="Electric">Electric 电光</option>
+            <option value="Earth">Earth 地形色</option>
+            <option value="Portland">Portland 彩色</option>
+            <option value="Picnic">Picnic 高对比</option>
+        </select>
+        <p class="hint">
+            该色图用于热力图、等高线图、三维曲面图和三维散点色条。
+        </p>
+    `;
+
+    const hiddenInput = $("customColors");
+
+    if (hiddenInput) {
+        parent.insertBefore(wrapper, hiddenInput);
+    } else {
+        parent.appendChild(wrapper);
+    }
+
+    const colorScale = $("colorScale");
+    if (colorScale) {
+        colorScale.addEventListener("change", drawPlot);
+    }
+}
 
 
 /* =========================================================
@@ -958,6 +1013,7 @@ function buildStatTraces() {
    热力图 / 等高线辅助
 ========================================================= */
 
+
 function buildGridData(xName, yName, zName, size) {
     const xi = columnIndex(xName);
     const yi = columnIndex(yName);
@@ -979,10 +1035,49 @@ function buildGridData(xName, yName, zName, size) {
         return {
             xGrid: [],
             yGrid: [],
-            zGrid: []
+            zGrid: [],
+            xLabels: [],
+            yLabels: [],
+            isMatrixGrid: false
         };
     }
 
+    const uniqueX = Array.from(new Set(points.map(p => p.x))).sort((a, b) => a - b);
+    const uniqueY = Array.from(new Set(points.map(p => p.y))).sort((a, b) => a - b);
+
+    const expectedCount = uniqueX.length * uniqueY.length;
+
+    /*
+       情况 1：
+       原始数据本身就是完整矩阵。
+       例如：
+       6 个带隙 × 6 个厚度 = 36 个点。
+
+       此时直接生成 6 × 6 矩阵，不再插值。
+    */
+    if (expectedCount === points.length) {
+        const zGrid = uniqueY.map(yVal => {
+            return uniqueX.map(xVal => {
+                const p = points.find(item => item.x === xVal && item.y === yVal);
+                return p ? p.z : null;
+            });
+        });
+
+        return {
+            xGrid: uniqueX,
+            yGrid: uniqueY,
+            zGrid,
+            xLabels: uniqueX.map(v => String(v)),
+            yLabels: uniqueY.map(v => String(v)),
+            isMatrixGrid: true
+        };
+    }
+
+    /*
+       情况 2：
+       原始数据不是完整矩阵时，才使用近邻插值。
+       但热力图后续仍然会用序号坐标来保证色块是正方形。
+    */
     const minX = Math.min(...points.map(p => p.x));
     const maxX = Math.max(...points.map(p => p.x));
     const minY = Math.min(...points.map(p => p.y));
@@ -1009,6 +1104,7 @@ function buildGridData(xName, yName, zName, size) {
 
             points.forEach(p => {
                 const d = Math.pow(p.x - gx, 2) + Math.pow(p.y - gy, 2);
+
                 if (d < bestDist) {
                     bestDist = d;
                     best = p;
@@ -1024,7 +1120,10 @@ function buildGridData(xName, yName, zName, size) {
     return {
         xGrid,
         yGrid,
-        zGrid
+        zGrid,
+        xLabels: xGrid.map(v => Number(v).toPrecision(4)),
+        yLabels: yGrid.map(v => Number(v).toPrecision(4)),
+        isMatrixGrid: false
     };
 }
 
@@ -1035,19 +1134,105 @@ function buildHeatmapTraces() {
 
     const grid = buildGridData(xName, yName, zName, getNumber("gridSize", 45));
 
+    /*
+       为了让热力图色块在图片中必须是正方形，
+       这里不直接用真实 X/Y 数值作为坐标，
+       而是用 0,1,2,3... 作为等间距坐标。
+
+       真实 X/Y 数值通过 ticktext 显示在坐标轴上。
+    */
+    const xIndex = grid.xGrid.map((_, i) => i);
+    const yIndex = grid.yGrid.map((_, i) => i);
+
+    const customdata = grid.zGrid.map((row, j) => {
+        return row.map((_, i) => {
+            return [
+                grid.xLabels[i],
+                grid.yLabels[j]
+            ];
+        });
+    });
+
+    lastHeatmapGridMeta = {
+        xIndex,
+        yIndex,
+        xLabels: grid.xLabels,
+        yLabels: grid.yLabels,
+        xName,
+        yName,
+        zName
+    };
+
     return [
         {
             type: "heatmap",
-            x: grid.xGrid,
-            y: grid.yGrid,
+            x: xIndex,
+            y: yIndex,
             z: grid.zGrid,
-            colorscale: "Viridis",
+
+            colorscale: getColorScale(),
+            zsmooth: false,
+
+            xgap: 0,
+            ygap: 0,
+
+            customdata,
+
+            hovertemplate:
+                `${sanitizeHtmlLabel(xName)}: %{customdata[0]}<br>` +
+                `${sanitizeHtmlLabel(yName)}: %{customdata[1]}<br>` +
+                `${sanitizeHtmlLabel(zName)}: %{z}<extra></extra>`,
+
             colorbar: {
-                title: sanitizeHtmlLabel(getValue("zTitle", zName))
+                title: {
+                    text: sanitizeHtmlLabel(getValue("zTitle", zName))
+                }
             },
+
             name: getDisplayTraceName(0, zName)
         }
     ];
+}
+
+function applySquareHeatmapLayout(layout) {
+    if (!lastHeatmapGridMeta) return;
+
+    const meta = lastHeatmapGridMeta;
+
+    layout.xaxis.tickmode = "array";
+    layout.xaxis.tickvals = meta.xIndex;
+    layout.xaxis.ticktext = meta.xLabels;
+    layout.xaxis.range = [
+        -0.5,
+        meta.xIndex.length - 0.5
+    ];
+
+    layout.yaxis.tickmode = "array";
+    layout.yaxis.tickvals = meta.yIndex;
+    layout.yaxis.ticktext = meta.yLabels;
+    layout.yaxis.range = [
+        -0.5,
+        meta.yIndex.length - 0.5
+    ];
+
+    /*
+       关键：锁定 y 轴和 x 轴比例。
+       因为现在 X/Y 都是 0,1,2,3... 等距坐标，
+       所以 scaleanchor 后每个色块就是正方形。
+    */
+    layout.yaxis.scaleanchor = "x";
+    layout.yaxis.scaleratio = 1;
+
+    layout.xaxis.constrain = "domain";
+    layout.yaxis.constrain = "domain";
+
+    layout.xaxis.title = {
+        text: sanitizeHtmlLabel(getValue("xTitle", meta.xName))
+    };
+
+    layout.yaxis.title = {
+        text: sanitizeHtmlLabel(getValue("yTitle", meta.yName))
+    };
 }
 
 function buildContourTraces() {
@@ -1063,7 +1248,7 @@ function buildContourTraces() {
             x: grid.xGrid,
             y: grid.yGrid,
             z: grid.zGrid,
-            colorscale: "Viridis",
+            colorscale: getColorScale(),
             contours: {
                 coloring: "heatmap",
                 showlines: true
@@ -1119,7 +1304,7 @@ function build3DTraces() {
                 x: grid.xGrid,
                 y: grid.yGrid,
                 z: grid.zGrid,
-                colorscale: "Viridis",
+                colorscale: getColorScale(),
                 name: getDisplayTraceName(0, zName),
                 colorbar: {
                     title: sanitizeHtmlLabel(getValue("zTitle", zName))
@@ -1139,7 +1324,7 @@ function build3DTraces() {
             marker: {
                 size: getNumber("markerSize", 5),
                 color: z,
-                colorscale: "Viridis",
+                colorscale: getColorScale(),
                 colorbar: {
                     title: sanitizeHtmlLabel(getValue("zTitle", zName))
                 }
@@ -1205,8 +1390,9 @@ function drawPlot() {
     }
 
     if (currentMode === "heatmap") {
-        traces = buildHeatmapTraces();
-    }
+    traces = buildHeatmapTraces();
+    applySquareHeatmapLayout(layout);
+}
 
     if (currentMode === "contour") {
         traces = buildContourTraces();
@@ -1457,6 +1643,11 @@ function bindEvents() {
         "markerSize",
         "fontSize",
         "theme",
+        "fontSize",
+        "theme",
+        "colorScale",
+        "exportWidth",
+        "exportHeight",
         "exportWidth",
         "exportHeight"
     ];
@@ -1493,6 +1684,8 @@ function bindEvents() {
 ========================================================= */
 
 document.addEventListener("DOMContentLoaded", () => {
+    ensureColorScaleSelector();
+
     bindEvents();
     updatePreviewTable();
     updateTraceNameInputs();
