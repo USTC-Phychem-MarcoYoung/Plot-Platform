@@ -490,6 +490,43 @@ function getTraceColor(index) {
 function getColorScale() {
     return getValue("colorScale", "Viridis");
 }
+function getContourShowLines() {
+    return getValue("contourShowLines", "show") === "show";
+}
+
+function ensureContourLineSelector() {
+    if ($("contourShowLines")) return;
+
+    const contourPanel = $("mode-contour");
+    if (!contourPanel) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "form-group";
+
+    wrapper.innerHTML = `
+        <label for="contourShowLines">等高线线条</label>
+        <select id="contourShowLines">
+            <option value="show">保留等高线</option>
+            <option value="hide">去除等高线，只保留填色</option>
+        </select>
+        <p class="hint">
+            选择“去除等高线”后，图中只显示连续填色色块，不显示黑色或彩色等高线线条。
+        </p>
+    `;
+
+    const lineWidthInput = $("contourLineWidth");
+
+    if (lineWidthInput && lineWidthInput.parentElement) {
+        lineWidthInput.parentElement.insertAdjacentElement("afterend", wrapper);
+    } else {
+        contourPanel.appendChild(wrapper);
+    }
+
+    const el = $("contourShowLines");
+    if (el) {
+        el.addEventListener("change", drawPlot);
+    }
+}
 
 function ensureColorScaleSelector() {
     if ($("colorScale")) return;
@@ -1240,7 +1277,14 @@ function buildContourTraces() {
     const yName = getValue("contourY") || columns[1];
     const zName = getValue("contourZ") || columns[2];
 
-    const grid = buildGridData(xName, yName, zName, getNumber("contourGridSize", 45));
+    const grid = buildGridData(
+        xName,
+        yName,
+        zName,
+        getNumber("contourGridSize", 45)
+    );
+
+    const showContourLines = getContourShowLines();
 
     return [
         {
@@ -1248,22 +1292,31 @@ function buildContourTraces() {
             x: grid.xGrid,
             y: grid.yGrid,
             z: grid.zGrid,
+
             colorscale: getColorScale(),
+
             contours: {
                 coloring: "heatmap",
-                showlines: true
+
+                /*
+                   true  = 保留等高线线条
+                   false = 去除等高线线条，只保留填色
+                */
+                showlines: showContourLines
             },
+
             line: {
-                width: getNumber("contourLineWidth", 1.2)
+                width: showContourLines ? getNumber("contourLineWidth", 1.2) : 0
             },
+
             colorbar: {
                 title: sanitizeHtmlLabel(getValue("zTitle", zName))
             },
+
             name: getDisplayTraceName(0, zName)
         }
     ];
 }
-
 
 /* =========================================================
    三维图
@@ -1609,48 +1662,57 @@ function bindEvents() {
     if (clearBtn) clearBtn.addEventListener("click", clearAll);
 
     const redrawIds = [
-        "xyType",
-        "dualX",
-        "dualLeft",
-        "dualRight",
-        "fitX",
-        "fitY",
-        "fitDegree",
-        "statCols",
-        "statType",
-        "bins",
-        "heatX",
-        "heatY",
-        "heatZ",
-        "gridSize",
-        "contourX",
-        "contourY",
-        "contourZ",
-        "contourGridSize",
-        "contourLineWidth",
-        "threeX",
-        "threeY",
-        "threeZ",
-        "threeType",
-        "plotTitle",
-        "xTitle",
-        "yTitle",
-        "zTitle",
-        "xScale",
-        "yScale",
-        "gridStyle",
-        "lineWidth",
-        "markerSize",
-        "fontSize",
-        "theme",
-        "fontSize",
-        "theme",
-        "colorScale",
-        "exportWidth",
-        "exportHeight",
-        "exportWidth",
-        "exportHeight"
-    ];
+    "xyType",
+
+    "dualX",
+    "dualLeft",
+    "dualRight",
+
+    "fitX",
+    "fitY",
+    "fitDegree",
+
+    "statCols",
+    "statType",
+    "bins",
+
+    "heatX",
+    "heatY",
+    "heatZ",
+    "gridSize",
+
+    "contourX",
+    "contourY",
+    "contourZ",
+    "contourGridSize",
+    "contourLineWidth",
+    "contourShowLines",
+
+    "threeX",
+    "threeY",
+    "threeZ",
+    "threeType",
+
+    "plotTitle",
+    "xTitle",
+    "yTitle",
+    "zTitle",
+
+    "xScale",
+    "yScale",
+    "gridStyle",
+
+    "lineWidth",
+    "markerSize",
+    "fontSize",
+    "theme",
+
+    "colorScale",
+
+    "exportWidth",
+    "exportHeight"
+];
+
 
     redrawIds.forEach(id => {
         const el = $(id);
@@ -1685,12 +1747,12 @@ function bindEvents() {
 
 document.addEventListener("DOMContentLoaded", () => {
     ensureColorScaleSelector();
+    ensureContourLineSelector();
 
     bindEvents();
     updatePreviewTable();
     updateTraceNameInputs();
     updateColorPickers();
-
     Plotly.newPlot(
         "plot",
         [],
