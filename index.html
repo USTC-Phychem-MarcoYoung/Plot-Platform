@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scientific Plot Studio</title>
+
+    <link rel="stylesheet" href="style.css?v=202506">
+
+    <!-- Plotly 绘图库 -->
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+    <!-- SheetJS：读取 Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+    <div class="header-inner">
+        <div class="brand">
+            <h1>Young Simulation Platform</h1>
+            <p>Dynamic computational simulation platform</p>
+        </div>
+    </div>
+</header>
+
+
+<main class="app-layout">
+
+    <section class="control-panel">
+
+        <div class="settings-grid">
+
+            <!-- =========================
+                 1. 数据输入
+            ========================== -->
+            <section class="panel-block">
+                <h2>1. 数据输入</h2>
+
+                <div class="form-group">
+                    <label for="dataFile">上传数据文件</label>
+                    <input
+                        type="file"
+                        id="dataFile"
+                        accept=".csv,.txt,.dat,.tsv,.xls,.xlsx"
+                    >
+
+                    <p class="hint">
+                        支持 CSV、TXT、DAT、TSV、XLS、XLSX等文件格式，第一行可作为表头。
+                    </p>
+                </div>
+
+                <div class="form-group">
+                    <label for="manualData">或手动粘贴数据</label>
+
+                    <textarea
+                        id="manualData"
+                        placeholder="例如：&#10;x,y,z2&#10;1,2,3"
+                    ></textarea>
+
+                    <button type="button" class="btn full" id="parseManualBtn">
+                        解析粘贴数据
+                    </button>
+                </div>
+
+                <div class="status" id="statusBox">
+                    请上传数据文件，或粘贴数据后点击“解析粘贴数据”。
+                </div>
+            </section>
+
+
+            <!-- =========================
+                 2. 绘图方式
+            ========================== -->
+            <section class="panel-block">
+                <h2>2. 选择绘图方式</h2>
+
+                <div class="plot-tabs">
+                    <button class="tab active" data-mode="xy" type="button">二维图</button>
+                    <button class="tab" data-mode="dual" type="button">双 Y 轴</button>
+                    <button class="tab" data-mode="fit" type="button">拟合图</button>
+                    <button class="tab" data-mode="stat" type="button">统计图</button>
+                    <button class="tab" data-mode="heatmap" type="button">热力图</button>
+                    <button class="tab" data-mode="contour" type="button">等高线</button>
+                    <button class="tab" data-mode="plot3d" type="button">三维图</button>
+                </div>
+
+
+                <!-- 二维图 -->
+                <div class="mode-panel active" id="mode-xy">
+                    <h3>二维曲线 / 散点 / 柱状图</h3>
+
+                    <p class="hint">
+                        默认第 1 列作为 X，第 2 列到最后一列为 Y 。
+                    </p>
+
+                    <div class="form-group">
+                        <label for="xyType">图像类型</label>
+                        <select id="xyType">
+                            <option value="lines">曲线图</option>
+                            <option value="markers">散点图</option>
+                            <option value="lines+markers">曲线 + 散点</option>
+                            <option value="bar">柱状图</option>
+                        </select>
+                    </div>
+                </div>
+
+
+                <!-- 双 Y 轴 -->
+                <div class="mode-panel" id="mode-dual">
+                    <h3>双 Y 轴图</h3>
+
+                    <div class="form-group">
+                        <label for="dualX">X 列</label>
+                        <select id="dualX"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dualLeft">左 Y 轴数据，可多选</label>
+                        <select id="dualLeft" multiple></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dualRight">右 Y 轴数据，可多选</label>
+                        <select id="dualRight" multiple></select>
+                    </div>
+                </div>
+
+
+                <!-- 拟合图 -->
+                <div class="mode-panel" id="mode-fit">
+                    <h3>散点 + 多项式拟合</h3>
+
+                    <div class="form-group">
+                        <label for="fitX">X 列</label>
+                        <select id="fitX"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="fitY">Y 列</label>
+                        <select id="fitY"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="fitDegree">拟合阶数</label>
+                        <select id="fitDegree">
+                            <option value="1">一次线性拟合</option>
+                            <option value="2">二次拟合</option>
+                            <option value="3">三次拟合</option>
+                            <option value="4">四次拟合</option>
+                            <option value="5">五次拟合</option>
+                        </select>
+                    </div>
+                </div>
+
+
+                <!-- 统计图 -->
+                <div class="mode-panel" id="mode-stat">
+                    <h3>统计图</h3>
+
+                    <div class="form-group">
+                        <label for="statCols">数据列，可多选</label>
+                        <select id="statCols" multiple></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="statType">统计图类型</label>
+                        <select id="statType">
+                            <option value="histogram">直方图</option>
+                            <option value="box">箱线图</option>
+                            <option value="violin">小提琴图</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="bins">直方图分箱数</label>
+                        <input type="number" id="bins" value="30" min="5" max="200">
+                    </div>
+                </div>
+
+
+                <!-- 热力图 -->
+                <div class="mode-panel" id="mode-heatmap">
+                    <h3>热力图</h3>
+
+                    <div class="form-group">
+                        <label for="heatX">X 列</label>
+                        <select id="heatX"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="heatY">Y 列</label>
+                        <select id="heatY"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="heatZ">Z 列</label>
+                        <select id="heatZ"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="gridSize">热图网格密度</label>
+                        <input type="number" id="gridSize" value="45" min="10" max="160">
+                    </div>
+                </div>
+
+
+                <!-- 等高线 -->
+                <div class="mode-panel" id="mode-contour">
+                    <h3>等高线图</h3>
+
+                    <div class="form-group">
+                        <label for="contourX">X 列</label>
+                        <select id="contourX"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contourY">Y 列</label>
+                        <select id="contourY"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contourZ">Z 列</label>
+                        <select id="contourZ"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contourGridSize">等高线网格密度</label>
+                        <input type="number" id="contourGridSize" value="45" min="10" max="160">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contourLineWidth">等高线线宽</label>
+                        <input type="number" id="contourLineWidth" value="1.2" min="0.2" max="6" step="0.2">
+                    </div>
+                </div>
+
+
+                <!-- 三维图 -->
+                <div class="mode-panel" id="mode-plot3d">
+                    <h3>三维图</h3>
+
+                    <div class="form-group">
+                        <label for="threeX">X 列</label>
+                        <select id="threeX"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="threeY">Y 列</label>
+                        <select id="threeY"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="threeZ">Z 列</label>
+                        <select id="threeZ"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="threeType">三维图类型</label>
+                        <select id="threeType">
+                            <option value="scatter3d">三维散点图</option>
+                            <option value="surface">三维曲面图</option>
+                        </select>
+                    </div>
+                </div>
+
+            </section>
+
+
+            <!-- =========================
+                 3. 图像样式
+            ========================== -->
+            <section class="panel-block">
+                <h2>3. 图像样式</h2>
+
+
+                <!-- 标题命名器 -->
+                <div class="form-group title-namer-box">
+                    <label class="section-label">标题命名器</label>
+
+                    <div class="form-group">
+                        <label for="plotTitle">图标题</label>
+                        <input type="text" id="plotTitle" value="Scientific Plot">
+
+                        <p class="hint">
+                            图标题支持角标、斜体、加粗。
+                        </p>
+                    </div>
+
+                    <div class="two-col">
+                        <div class="form-group">
+                            <label for="xTitle">X 轴标题</label>
+                            <input type="text" id="xTitle" value="X">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="yTitle">Y 轴标题</label>
+                            <input type="text" id="yTitle" value="Y">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="zTitle">Z 轴 / 右 Y 轴标题</label>
+                        <input type="text" id="zTitle" value="Z / Right Y">
+
+                        <p class="hint">
+                            用于右 Y 轴、Z 轴或色标标题。
+                        </p>
+                    </div>
+                </div>
+
+
+                <!-- 曲线命名器 -->
+                <div class="form-group">
+                    <label>曲线命名器</label>
+
+                    <div id="traceNameList" class="trace-name-list">
+                        <div class="trace-name-empty">
+                            读取数据后，将根据当前图形模式自动生成曲线命名框。
+                        </div>
+                    </div>
+
+                    <p class="hint">
+                        曲线命名器只负责图例中的曲线名称。读取数据后，有几条曲线就会自动生成几个命名框。
+                    </p>
+                </div>
+
+
+                <div class="two-col">
+                    <div class="form-group">
+                        <label for="xScale">X 坐标</label>
+                        <select id="xScale">
+                            <option value="linear">线性</option>
+                            <option value="log">对数</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="yScale">Y 坐标</label>
+                        <select id="yScale">
+                            <option value="linear">线性</option>
+                            <option value="log">对数</option>
+                        </select>
+                    </div>
+                </div>
+
+
+                <div class="form-group">
+                    <label for="gridStyle">网格样式</label>
+
+                    <select id="gridStyle">
+                        <option value="none">无网格</option>
+                        <option value="major">主网格</option>
+                        <option value="majorMinor">主网格 + 次网格</option>
+                        <option value="dash">虚线网格</option>
+                        <option value="paperLight">论文淡网格</option>
+                    </select>
+
+                    <p class="hint">
+                        控制预览图和导出图是否显示网格，以及网格样式。
+                    </p>
+                </div>
+
+
+                <div class="two-col">
+                    <div class="form-group">
+                        <label for="lineWidth">线宽</label>
+                        <input type="number" id="lineWidth" value="2" min="0.2" max="12" step="0.2">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="markerSize">点大小</label>
+                        <input type="number" id="markerSize" value="7" min="1" max="40" step="1">
+                    </div>
+                </div>
+
+
+                <div class="two-col">
+                    <div class="form-group">
+                        <label for="fontSize">字体大小</label>
+                        <input type="number" id="fontSize" value="15" min="8" max="36">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="theme">主题</label>
+                        <select id="theme">
+                            <option value="paper">论文白底</option>
+                            <option value="classic">经典黑白</option>
+                            <option value="presentation">汇报风格</option>
+                            <option value="dark">深色背景</option>
+                        </select>
+                    </div>
+                </div>
+
+
+                <div class="form-group">
+                    <label>曲线颜色 / 色图器</label>
+
+                    <div id="colorPickerList" class="color-picker-list">
+                        <div class="color-picker-empty">
+                            读取数据后，将根据曲线数量自动生成颜色选择器。
+                        </div>
+                    </div>
+
+                    <input
+                        type="hidden"
+                        id="customColors"
+                        value="#253f5f,#b24a3b,#2f6f4e,#7a4fa3,#c47f1f,#3b7ea1"
+                    >
+                </div>
+
+
+                <div class="two-col">
+                    <div class="form-group">
+                        <label for="exportWidth">导出宽度</label>
+                        <input type="number" id="exportWidth" value="1600" min="400" max="5000">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="exportHeight">导出高度</label>
+                        <input type="number" id="exportHeight" value="1100" min="300" max="5000">
+                    </div>
+                </div>
+
+
+                <div class="button-row">
+                    <button type="button" class="btn" id="drawBtn">绘制 / 更新</button>
+                    <button type="button" class="btn ghost" id="downloadPngBtn">PNG</button>
+                    <button type="button" class="btn ghost" id="downloadSvgBtn">SVG</button>
+                    <button type="button" class="btn ghost" id="exportHtmlBtn">HTML</button>
+                    <button type="button" class="btn danger" id="clearBtn">清空</button>
+                </div>
+            </section>
+
+        </div>
+
+    </section>
+
+
+    <!-- =========================
+         绘图区
+    ========================== -->
+    <section class="plot-area">
+
+        <div class="plot-card">
+            <div id="plot"></div>
+        </div>
+
+        <div class="preview-card">
+            <h2>数据预览</h2>
+
+            <div class="table-wrap">
+                <table id="previewTable"></table>
+            </div>
+        </div>
+
+
+        <div class="preview-card">
+            <h2>角标输入打法注释</h2>
+
+            <p class="hint">
+                标题命名器和曲线命名器均支持以下写法。
+            </p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>想显示的效果</th>
+                        <th>输入方法</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <tr>
+                        <td>CO₂</td>
+                        <td><code>CO&lt;sub&gt;2&lt;/sub&gt;</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>H₂O</td>
+                        <td><code>H&lt;sub&gt;2&lt;/sub&gt;O</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>m²</td>
+                        <td><code>m&lt;sup&gt;2&lt;/sup&gt;</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>10⁻³</td>
+                        <td><code>10&lt;sup&gt;-3&lt;/sup&gt;</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>xᵢ</td>
+                        <td><code>x&lt;sub&gt;i&lt;/sub&gt;</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>E = mc²</td>
+                        <td><code>E = mc&lt;sup&gt;2&lt;/sup&gt;</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>斜体 x</td>
+                        <td><code>&lt;i&gt;x&lt;/i&gt;</code></td>
+                    </tr>
+
+                    <tr>
+                        <td>加粗 Title</td>
+                        <td><code>&lt;b&gt;Title&lt;/b&gt;</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p class="hint">
+                例如 X 轴标题想显示为 Concentration of CO₂，就输入：
+                <br>
+                <code>Concentration of CO&lt;sub&gt;2&lt;/sub&gt;</code>
+            </p>
+        </div>
+
+    </section>
+
+</main>
+
+
+<script src="app.js?v=202506"></script>
+
+</body>
+</html>
