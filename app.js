@@ -658,6 +658,192 @@ function applyGridStyleToAxis(axis, gridStyle, theme) {
     }
 }
 
+/* =========================================================
+   智能坐标刻度
+   根据数据范围自动生成有数字意义的刻度
+========================================================= */
+
+function finiteNumbers(arr) {
+    if (!Array.isArray(arr)) return [];
+
+    return arr
+        .flat(Infinity)
+        .map(v => Number(v))
+        .filter(v => Number.isFinite(v));
+}
+
+function uniqueSortedNumbers(values) {
+    return Array.from(new Set(values))
+        .filter(v => Number.isFinite(v))
+        .sort((a, b) => a - b);
+}
+
+function roundToPrecision(value, precision = 12) {
+    return Number(Number(value).toPrecision(precision));
+}
+
+function niceStep(rawStep) {
+    if (!Number.isFinite(rawStep) || rawStep <= 0) return 1;
+
+    const exponent = Math.floor(Math.log10(rawStep));
+    const base = Math.pow(10, exponent);
+    const fraction = rawStep / base;
+
+    let niceFraction;
+
+    if (fraction <= 1) {
+        niceFraction = 1;
+    } else if (fraction <= 2) {
+        niceFraction = 2;
+    } else if (fraction <= 2.5) {
+        niceFraction = 2.5;
+    } else if (fraction <= 5) {
+        niceFraction = 5;
+    } else {
+        niceFraction = 10;
+    }
+
+    return niceFraction * base;
+}
+
+function buildNiceTicks(values, targetCount = 6) {
+    const nums = finiteNumbers(values);
+    if (!nums.length) return null;
+
+    const unique = uniqueSortedNumbers(nums);
+
+    /*
+       如果真实数据点数量不多，直接用真实数据点作为刻度。
+       例如 X = 1.6, 1.7, 1.8, 1.9...
+       这样最有数字意义。
+    */
+    if (unique.length >= 2 && unique.length <= 12) {
+        return {
+            tickmode: "array",
+            tickvals: unique,
+            ticktext: unique.map(v => String(roundToPrecision(v, 8)))
+        };
+    }
+
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+
+    if (min === max) {
+        return {
+            tickmode: "array",
+            tickvals: [min],
+            ticktext: [String(roundToPrecision(min, 8))]
+        };
+    }
+
+    const span = max - min;
+    const step = niceStep(span / Math.max(targetCount - 1, 1));
+
+    const start = Math.ceil(min / step) * step;
+    const end = Math.floor(max / step) * step;
+
+    const ticks = [];
+
+    for (let v = start; v <= end + step * 0.5; v += step) {
+        ticks.push(roundToPrecision(v, 10));
+    }
+
+    /*
+       确保最小值和最大值附近不会完全没有刻度
+    */
+    if (!ticks.length) {
+        ticks.push(roundToPrecision(min, 10));
+        ticks.push(roundToPrecision(max, 10));
+    }
+
+    return {
+        tickmode: "array",
+        tickvals: ticks,
+        ticktext: ticks.map(v => String(roundToPrecision(v, 8)))
+    };
+}
+
+function applyTicksToAxis(axis, values, targetCount = 6) {
+    if (!axis) return;
+
+    const tickInfo = buildNiceTicks(values, targetCount);
+    if (!tickInfo) return;
+
+    axis.tickmode = tickInfo.tickmode;
+    axis.tickvals = tickInfo.tickvals;
+    axis.ticktext = tickInfo.ticktext;
+}
+
+function collectTraceValues(traces, prop, filterFn = null) {
+    const values = [];
+
+    traces.forEach(trace => {
+        if (filterFn && !filterFn(trace)) return;
+
+        if (Array.isArray(trace[prop])) {
+            values.push(...finiteNumbers(trace[prop]));
+        }
+    });
+
+    return values;
+}
+
+function applyMeaningfulTicks(layout, traces) {
+    if (!layout || !Array.isArray(traces)) return;
+
+    /*
+       热力图比较特殊：
+       你的代码里 applySquareHeatmapLayout() 已经把真实 X/Y 标签映射到矩阵格子了，
+       所以热力图不要再用这里的普通数值刻度覆盖。
+    */
+    if (currentMode === "heatmap") {
+        return;
+    }
+
+    /*
+       二维图、拟合图、等高线图、统计图等普通 2D 图
+    */
+    if (currentMode !== "plot3d") {
+        const xValues = collectTraceValues(traces, "x");
+        const yValues = collectTraceValues(traces, "y", trace => trace.yaxis !== "y2");
+        const y2Values = collectTraceValues(traces, "y", trace => trace.yaxis === "y2");
+
+        if (layout.xaxis) {
+            applyTicksToAxis(layout.xaxis, xValues, 7);
+        }
+
+        if (layout.yaxis) {
+            applyTicksToAxis(layout.yaxis, yValues, 7);
+        }
+
+        if (layout.yaxis2 && y2Values.length) {
+            applyTicksToAxis(layout.yaxis2, y2Values, 7);
+        }
+
+        return;
+    }
+
+    /*
+       三维图
+    */
+    if (currentMode === "plot3d" && layout.scene) {
+        const xValues = collectTraceValues(traces, "x");
+        const yValues = collectTraceValues(traces, "y");
+        const zValues = collectTraceValues(traces, "z");
+
+        if (layout.scene.xaxis) {
+            applyTicksToAxis(layout.scene.xaxis, xValues, 6);
+        }
+
+        if (layout.scene.yaxis) {
+            applyTicksToAxis(layout.scene.yaxis, yValues, 6);
+        }
+
+        if (layout.scene.zaxis) {
+            applyTicksToAxis(layout.scene.zaxis, zValues, 6);
+        }
+    }
+}
 
 /* =========================================================
    布局
@@ -720,7 +906,12 @@ function getBaseLayout() {
             linewidth: 1.5,
             linecolor: axisColor,
             mirror: true,
-            zeroline: false
+            zeroline: false,
+            ticks: "inside",
+            ticklen: 6,
+            tickwidth: 1.2,
+            tickcolor: axisColor,
+            showticklabels: true
         },
 
         yaxis: {
@@ -732,7 +923,12 @@ function getBaseLayout() {
             linewidth: 1.5,
             linecolor: axisColor,
             mirror: true,
-            zeroline: false
+            zeroline: false,
+            ticks: "inside",
+            ticklen: 6,
+            tickwidth: 1.2,
+            tickcolor: axisColor,
+            showticklabels: true
         },
         showlegend: true, 
         legend: {
@@ -1461,16 +1657,22 @@ function drawPlot() {
         traces = buildDualTraces();
 
         layout.yaxis2 = {
-            title: {
-                text: sanitizeHtmlLabel(getValue("zTitle", "Right Y"))
-            },
-            overlaying: "y",
-            side: "right",
-            showline: true,
-            linewidth: 1.5,
-            linecolor: layout.font.color,
-            zeroline: false
-        };
+    title: {
+        text: sanitizeHtmlLabel(getValue("zTitle", "Right Y"))
+    },
+    overlaying: "y",
+    side: "right",
+    showline: true,
+    linewidth: 1.5,
+    linecolor: layout.font.color,
+    zeroline: false,
+
+    ticks: "inside",
+    ticklen: 6,
+    tickwidth: 1.2,
+    tickcolor: layout.font.color,
+    showticklabels: true
+};
 
         applyGridStyleToAxis(
             layout.yaxis2,
@@ -1533,7 +1735,7 @@ function drawPlot() {
             }
         };
     }
-
+    applyMeaningfulTicks(layout, traces);
     Plotly.newPlot(plot, traces, layout, getPlotConfig()).then(() => {
     bindLegendDragPersistence(plot);
 });
