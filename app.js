@@ -18,7 +18,12 @@ let customColors = [
     "#c47f1f",
     "#3b7ea1"
 ];
-
+let legendPosition = {
+    x: 1.02,
+    y: 1,
+    xanchor: "left",
+    yanchor: "top"
+};
 
 /* =========================================================
    基础工具
@@ -729,12 +734,28 @@ function getBaseLayout() {
             mirror: true,
             zeroline: false
         },
-
+        showlegend: true, 
         legend: {
-            x: 1.02,
-            y: 1,
-            bgcolor: "rgba(255,255,255,0)"
-        },
+    x: legendPosition.x,
+    y: legendPosition.y,
+    xanchor: legendPosition.xanchor,
+    yanchor: legendPosition.yanchor,
+
+    bgcolor: theme === "dark"
+        ? "rgba(17,24,39,0.85)"
+        : "rgba(255,255,255,0.88)",
+
+    bordercolor: theme === "dark" ? "#94a3b8" : "#8b8578",
+    borderwidth: 1,
+
+    font: {
+        size: fontSize,
+        color: fontColor
+    },
+
+    orientation: "v",
+    traceorder: "normal"
+},
 
         hovermode: "closest"
     };
@@ -750,10 +771,34 @@ function getPlotConfig() {
         responsive: true,
         displaylogo: false,
         scrollZoom: true,
+        editable: true,
+        edits: {
+            legendPosition: true
+        },
         modeBarButtonsToRemove: ["lasso2d", "select2d"]
     };
 }
 
+function bindLegendDragPersistence(plotEl) {
+    if (!plotEl || plotEl.__legendDragBound) return;
+    plotEl.__legendDragBound = true;
+
+    plotEl.on("plotly_relayout", ev => {
+        if (
+            ev["legend.x"] !== undefined ||
+            ev["legend.y"] !== undefined ||
+            ev["legend.xanchor"] !== undefined ||
+            ev["legend.yanchor"] !== undefined
+        ) {
+            legendPosition = {
+                x: ev["legend.x"] ?? legendPosition.x,
+                y: ev["legend.y"] ?? legendPosition.y,
+                xanchor: ev["legend.xanchor"] ?? legendPosition.xanchor,
+                yanchor: ev["legend.yanchor"] ?? legendPosition.yanchor
+            };
+        }
+    });
+}
 
 /* =========================================================
    trace 构建：二维图
@@ -1489,7 +1534,9 @@ function drawPlot() {
         };
     }
 
-    Plotly.newPlot(plot, traces, layout, getPlotConfig());
+    Plotly.newPlot(plot, traces, layout, getPlotConfig()).then(() => {
+    bindLegendDragPersistence(plot);
+});
 }
 
 
@@ -1754,18 +1801,30 @@ document.addEventListener("DOMContentLoaded", () => {
     updateTraceNameInputs();
     updateColorPickers();
     Plotly.newPlot(
-        "plot",
-        [],
-        {
-            title: {
-                text: "请上传或粘贴数据"
-            },
-            paper_bgcolor: "#ffffff",
-            plot_bgcolor: "#ffffff",
-            font: {
-                family: "Times New Roman, SimSun, serif"
-            }
+    "plot",
+    [],
+    {
+        title: {
+            text: "请上传或粘贴数据"
         },
-        getPlotConfig()
-    );
+        paper_bgcolor: "#ffffff",
+        plot_bgcolor: "#ffffff",
+        font: {
+            family: "Times New Roman, SimSun, serif"
+        },
+        showlegend: true,
+        legend: {
+            x: legendPosition.x,
+            y: legendPosition.y,
+            xanchor: legendPosition.xanchor,
+            yanchor: legendPosition.yanchor,
+            bgcolor: "rgba(255,255,255,0.88)",
+            bordercolor: "#8b8578",
+            borderwidth: 1
+        }
+    },
+    getPlotConfig()
+).then(() => {
+    bindLegendDragPersistence($("plot"));
+});
 });
